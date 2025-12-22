@@ -1,0 +1,8 @@
+[Unit]
+Description=USB updater triggered by udev for %I
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/usb-updater-udev-wrapper %I
+SuccessExitStatus=0 11  

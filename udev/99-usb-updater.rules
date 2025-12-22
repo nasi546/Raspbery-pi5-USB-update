@@ -1,0 +1,2 @@
+#라벨이 UPDATE_USB인 디바이스 추가될때 usb-updater시작
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="UPDATE_USB", ENV{SYSTEMD_WANTS}="usb-updater-on-usb@%k.service"

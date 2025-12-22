@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "description": "example update package",
+  "sha256": "",
+  "target": "/opt/my-app",
+  "service": "my-app.service"
+}

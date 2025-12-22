@@ -1,0 +1,45 @@
+#!/bin/bash
+set -euo pipefail
+
+LOG_FILE="/var/log/usb-updater.log"
+STATE_FILE="/var/lib/usb-updater/state.json"
+
+log() {
+  local level="$1"; shift
+  echo "[$(date '+%F %T')] [$level] $*" | tee -a "$LOG_FILE"
+}
+
+get_json_field() {
+  local file="$1"
+  local key="$2"
+  grep -o "\"${key}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$file" 2>/dev/null \
+    | head -n1 \
+    | sed "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/"
+}
+
+if [[ ! -f "${STATE_FILE}" ]]; then
+  log "WARN" "No state file; nothing to mark healthy"
+  exit 0
+fi
+
+CURRENT_VERSION="$(get_json_field "${STATE_FILE}" current_version || true)"
+TARGET_DIR="$(get_json_field "${STATE_FILE}" target_dir || true)"
+
+mkdir -p "$(dirname "${STATE_FILE}")"
+cat > "${STATE_FILE}" <<EOF
+{
+  "current_version": "${CURRENT_VERSION}",
+  "previous_version": "",
+  "backup_dir": "",
+  "target_dir": "${TARGET_DIR}",
+  "pending": "false",
+  "last_update": "$(date '+%F %T')",
+  "last_status": "ok",
+  "last_error": ""
+}
+EOF
+
+log "INFO" "Update for version ${CURRENT_VERSION} marked as healthy"
+
+exit 0
+

@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic USB auto updater timer
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+Unit=usb-updater.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

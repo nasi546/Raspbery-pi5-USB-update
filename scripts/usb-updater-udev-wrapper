@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+
+LOG_FILE="/var/log/usb-updater.log"
+
+echo "[$(date '+%F %T')] [INFO] udev wrapper triggered for device: $1" >> "$LOG_FILE"
+
+# 최대 10초(0.5초 x 20번) 동안 /media/*/UPDATE_USB 올라오는지 기다림
+for i in $(seq 1 20); do
+  MOUNT_PATH="$(ls -d /media/*/UPDATE_USB 2>/dev/null | head -n 1 || true)"
+  if [ -n "${MOUNT_PATH}" ] && [ -d "${MOUNT_PATH}" ]; then
+    echo "[$(date '+%F %T')] [INFO] udev wrapper detected mount at ${MOUNT_PATH}" >> "$LOG_FILE"
+    /usr/local/sbin/usb-updater
+    exit $?
+  fi
+  sleep 0.5
+done
+
+echo "[$(date '+%F %T')] [WARN] udev wrapper: UPDATE_USB not mounted within timeout" >> "$LOG_FILE"
+exit 0

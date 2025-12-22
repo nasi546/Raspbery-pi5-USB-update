@@ -1,0 +1,12 @@
+[Unit]
+Description=My App
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/my-app/my-app.sh
+ExecStartPost=/usr/local/sbin/usb-update-mark-healthy
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

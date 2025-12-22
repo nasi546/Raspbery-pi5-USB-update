@@ -1,0 +1,13 @@
+[Unit]
+Description=USB auto updater (mini project)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/usb-updater
+#User=pi07
+#Group=pi07
+#0이 정상 11: 새 버전이 없어서 스킵도 성공으로 처리
+SuccessExitStatus=0 11	
+[Install]
+WantedBy=multi-user.target

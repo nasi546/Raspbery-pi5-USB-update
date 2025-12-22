@@ -1,0 +1,228 @@
+#!/bin/bash
+set -euo pipefail
+
+LOG_FILE="/var/log/usb-updater.log"
+STATE_FILE="/var/lib/usb-updater/state.json"
+DEFAULT_TARGET_DIR="/opt/my-app"
+HISTORY_LOG="/var/log/usb-updater-history.log"
+
+log() {
+  local level="$1"; shift
+  echo "[$(date '+%F %T')] [$level] $*" | tee -a "$LOG_FILE"
+}
+
+append_history() {
+  local action="$1"
+  local old="$2"
+  local new="$3"
+  local note="$4"
+  echo "$(date '+%F %T'),${action},${old},${new},${note}" >> "${HISTORY_LOG}"
+}
+
+get_json_field() {
+  local file="$1"
+  local key="$2"
+  grep -o "\"${key}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$file" 2>/dev/null \
+    | head -n1 \
+    | sed "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/"
+}
+
+semver_ge() {
+  local a="$1"
+  local b="$2"
+
+  if [[ "$a" == "$b" ]]; then
+    return 0
+  fi
+
+  local max
+  max="$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)"
+  [[ "$max" == "$a" ]]
+}
+
+AUTO_DETECT_MOUNT=1
+MOUNT_PATH=""
+DRY_RUN=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --mount-path)
+      MOUNT_PATH="$2"
+      AUTO_DETECT_MOUNT=0
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    *)
+      log "WARN" "Unknown argument: $1"
+      shift
+      ;;
+  esac
+done
+
+CURRENT_VERSION=""
+PREV_VERSION=""
+BACKUP_DIR_SAVED=""
+TARGET_DIR_STATE=""
+PENDING=""
+
+if [[ -f "${STATE_FILE}" ]]; then
+  CURRENT_VERSION="$(get_json_field "${STATE_FILE}" current_version || true)"
+  PREV_VERSION="$(get_json_field "${STATE_FILE}" previous_version || true)"
+  BACKUP_DIR_SAVED="$(get_json_field "${STATE_FILE}" backup_dir || true)"
+  TARGET_DIR_STATE="$(get_json_field "${STATE_FILE}" target_dir || true)"
+  PENDING="$(get_json_field "${STATE_FILE}" pending || true)"
+
+  if [[ "${PENDING}" == "true" && -n "${BACKUP_DIR_SAVED}" && -d "${BACKUP_DIR_SAVED}" ]]; then
+    if (( DRY_RUN )); then
+      log "WARN" "Would auto-rollback pending update (dry-run): ${BACKUP_DIR_SAVED}"
+      append_history "rollback-dryrun" "${CURRENT_VERSION}" "${PREV_VERSION}" "dry-run pending rollback"
+      exit 0
+    fi
+
+    log "ERROR" "Previous update not confirmed healthy; auto rollback using backup ${BACKUP_DIR_SAVED}"
+
+    local_target="${TARGET_DIR_STATE:-${DEFAULT_TARGET_DIR}}"
+
+    rm -rf "${local_target}"
+    mkdir -p "${local_target}"
+    cp -a "${BACKUP_DIR_SAVED}/." "${local_target}/"
+
+    mkdir -p "$(dirname "${STATE_FILE}")"
+    cat > "${STATE_FILE}" <<EOF
+{
+  "current_version": "${PREV_VERSION}",
+  "previous_version": "",
+  "backup_dir": "",
+  "target_dir": "${local_target}",
+  "pending": "false",
+  "last_update": "$(date '+%F %T')",
+  "last_status": "rollback",
+  "last_error": "Previous update not confirmed healthy; auto-rollback applied"
+}
+EOF
+
+    append_history "rollback" "${CURRENT_VERSION}" "${PREV_VERSION}" "auto-rollback (pending not healthy)"
+    log "INFO" "Rollback to previous version (${PREV_VERSION}) completed"
+    exit 0
+  fi
+fi
+
+if [[ -n "${MOUNT_PATH}" ]]; then
+  if [[ ! -d "${MOUNT_PATH}" ]]; then
+    log "ERROR" "Mount path does not exist: ${MOUNT_PATH}"
+    exit 10
+  fi
+else
+  for d in /media/*/UPDATE_USB; do
+    if [[ -d "${d}" ]]; then
+      MOUNT_PATH="${d}"
+      break
+    fi
+  done
+
+  if [[ -z "${MOUNT_PATH}" ]]; then
+    log "ERROR" "No UPDATE_USB mount found under /media"
+    exit 10
+  fi
+fi
+
+UPDATE_DIR="${MOUNT_PATH}/update"
+MANIFEST="${UPDATE_DIR}/manifest.json"
+PACKAGE="${UPDATE_DIR}/app.tar.gz"
+
+if [[ ! -f "${MANIFEST}" ]]; then
+  log "INFO" "No manifest.json found under ${UPDATE_DIR} (no update)"
+  exit 0
+fi
+
+log "INFO" "Found manifest at ${MANIFEST}"
+
+if [[ ! -f "${PACKAGE}" ]]; then
+  log "ERROR" "Package file not found: ${PACKAGE}"
+  exit 20
+fi
+
+log "INFO" "Found package at ${PACKAGE}"
+
+NEW_VERSION="$(get_json_field "${MANIFEST}" version || true)"
+TARGET_DIR="$(get_json_field "${MANIFEST}" target || true)"
+SERVICE_NAME="$(get_json_field "${MANIFEST}" service || true)"
+
+if [[ -z "${TARGET_DIR}" ]]; then
+  TARGET_DIR="${DEFAULT_TARGET_DIR}"
+fi
+
+log "INFO" "Target dir: ${TARGET_DIR}"
+log "INFO" "Update version (from manifest): ${NEW_VERSION}"
+
+# 현재 버전이 비어있지 않고, "unknown" 도 아닐 때만 버전 비교
+if [[ -n "${CURRENT_VERSION}" && "${CURRENT_VERSION}" != "unknown" && -n "${NEW_VERSION}" ]]; then
+  if semver_ge "${CURRENT_VERSION}" "${NEW_VERSION}"; then
+    log "INFO" "Current version (${CURRENT_VERSION}) >= new version (${NEW_VERSION}), skipping update"
+    append_history "skip" "${CURRENT_VERSION}" "${NEW_VERSION}" "version >= new_version"
+    exit 11
+  fi
+fi
+
+WORK_DIR="/opt/my-app-updates/work"
+BACKUP_ROOT="/opt/my-app-backups"
+BACKUP_DIR="${BACKUP_ROOT}/my-app-$(date '+%Y%m%d-%H%M%S')"
+
+rm -rf "${WORK_DIR}"
+mkdir -p "${WORK_DIR}" "${BACKUP_ROOT}"
+
+tar -C "${WORK_DIR}" -xzf "${PACKAGE}"
+log "INFO" "Extracted package into ${WORK_DIR}"
+
+if [[ -d "${TARGET_DIR}" ]]; then
+  mkdir -p "${BACKUP_DIR}"
+  cp -a "${TARGET_DIR}/." "${BACKUP_DIR}/"
+  log "INFO" "Backup created at ${BACKUP_DIR}"
+else
+  log "WARN" "Target dir ${TARGET_DIR} does not exist; no backup created"
+  BACKUP_DIR=""
+fi
+
+if (( DRY_RUN )); then
+  log "INFO" "Dry-run mode: stopping before applying update"
+  append_history "dry-run" "${CURRENT_VERSION}" "${NEW_VERSION}" "extracted only; no apply"
+  exit 0
+fi
+
+TMP_DIR="${TARGET_DIR}.tmp"
+
+rm -rf "${TMP_DIR}"
+mkdir -p "${TMP_DIR}"
+cp -a "${WORK_DIR}/." "${TMP_DIR}/"
+log "INFO" "Copied new version to ${TMP_DIR}"
+
+rm -rf "${TARGET_DIR}"
+mv "${TMP_DIR}" "${TARGET_DIR}"
+log "INFO" "Replaced ${TARGET_DIR} with new version"
+
+mkdir -p "$(dirname "${STATE_FILE}")"
+cat > "${STATE_FILE}" <<EOF
+{
+  "current_version": "${NEW_VERSION}",
+  "previous_version": "${CURRENT_VERSION}",
+  "backup_dir": "${BACKUP_DIR}",
+  "target_dir": "${TARGET_DIR}",
+  "pending": "true",
+  "last_update": "$(date '+%F %T')",
+  "last_status": "pending",
+  "last_error": ""
+}
+EOF
+
+append_history "ok-pending" "${CURRENT_VERSION}" "${NEW_VERSION}" "installed; waiting health"
+log "INFO" "Update installed; waiting for health confirmation"
+
+if [[ -n "${SERVICE_NAME}" ]]; then
+  log "INFO" "Hint: systemd service to restart after update: ${SERVICE_NAME}"
+fi
+
+exit 0
+

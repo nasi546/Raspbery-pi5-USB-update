@@ -1,0 +1,81 @@
+#!/bin/bash
+set -euo pipefail
+
+BACKUP_ROOT="/opt/my-app-backups"
+TARGET_DIR="/opt/my-app"
+STATE_FILE="/var/lib/usb-updater/state.json"
+LOG_FILE="/var/log/usb-updater.log"
+HISTORY_LOG="/var/log/usb-updater-history.log"
+
+log() {
+  local level="$1"; shift
+  echo "[$(date '+%F %T')] [$level] $*" | tee -a "$LOG_FILE"
+}
+
+append_history() {
+  local action="$1"
+  local old="$2"
+  local new="$3"
+  local note="$4"
+  echo "$(date '+%F %T'),${action},${old},${new},${note}" >> "${HISTORY_LOG}"
+}
+
+usage() {
+  echo "Usage: $0 last"
+  echo "       $0 <backup-dir-name>"
+  echo "Example backup-dir-name: my-app-20251218-100144"
+  exit 1
+}
+
+if [[ $# -lt 1 ]]; then
+  usage
+fi
+
+arg="$1"
+
+if [[ "${arg}" == "last" ]]; then
+  # 최신 백업 디렉토리 하나 고르기
+  if ! ls -1 "${BACKUP_ROOT}" >/dev/null 2>&1; then
+    log "ERROR" "No backups under ${BACKUP_ROOT}"
+    exit 2
+  fi
+  BACKUP_DIR_NAME="$(ls -1 "${BACKUP_ROOT}" | sort | tail -n 1)"
+else
+  BACKUP_DIR_NAME="${arg}"
+fi
+
+BACKUP_DIR="${BACKUP_ROOT}/${BACKUP_DIR_NAME}"
+
+if [[ ! -d "${BACKUP_DIR}" ]]; then
+  log "ERROR" "Backup directory not found: ${BACKUP_DIR}"
+  exit 3
+fi
+
+OLD_VERSION="unknown"
+if [[ -f "${STATE_FILE}" ]]; then
+  OLD_VERSION="$(grep -o '"current_version"[[:space:]]*:[[:space:]]*"[^"]*"' "${STATE_FILE}" | sed 's/.*"current_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+fi
+
+log "INFO" "Manual rollback using backup ${BACKUP_DIR}"
+
+rm -rf "${TARGET_DIR}"
+mkdir -p "${TARGET_DIR}"
+cp -a "${BACKUP_DIR}/." "${TARGET_DIR}/"
+
+mkdir -p "$(dirname "${STATE_FILE}")"
+cat > "${STATE_FILE}" <<EOF
+{
+  "current_version": "unknown",
+  "previous_version": "",
+  "backup_dir": "",
+  "target_dir": "${TARGET_DIR}",
+  "pending": "false",
+  "last_update": "$(date '+%F %T')",
+  "last_status": "manual-rollback",
+  "last_error": "manual rollback to ${BACKUP_DIR_NAME}"
+}
+EOF
+
+append_history "manual-rollback" "${OLD_VERSION}" "unknown" "rollback to ${BACKUP_DIR_NAME}"
+log "INFO" "Manual rollback completed; target now restored from ${BACKUP_DIR}"
+
