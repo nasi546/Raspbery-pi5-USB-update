@@ -1,5 +1,5 @@
 ## 전체 동작 플로우 (Flowchart)
-
+```markdown
 ```mermaid
 flowchart TD
   %% ==== Triggers ====
