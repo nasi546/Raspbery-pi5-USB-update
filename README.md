@@ -34,7 +34,7 @@ flowchart TD
   UPD --> LOG[Log: usb-updater.log, history.log]
   HEALTHY_MARK --> LOG
   ROLLBACK --> LOG
-```
+
 # Raspberry Pi 5 – USB Auto Update System
 > 자동 롤백 + 헬스 체크 + udev 트리거 기반 “안전한 업데이트” 미니 프로젝트
 
