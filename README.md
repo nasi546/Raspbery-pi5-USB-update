@@ -408,6 +408,9 @@ cat /var/lib/usb-updater/state.json
 ```
 📌 TODO / 확장 아이디어
 SHA256 검증 “필수화”
+
 여러 앱(target) 지원 (manifest 다중 엔트리)
+
 A/B 루트 파티션(전체 OS 롤백) 구조로 확장
+
 네트워크 업데이트 서버 연동(USB는 fallback 용)
