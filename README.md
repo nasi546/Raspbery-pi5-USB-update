@@ -313,4 +313,232 @@ SHA256 검증 필수화 (현재는 필드만 존재)
 A/B 루트 파티션(전체 OS 롤백) 구조로 확장
 
 네트워크 기반 업데이트 서버와 연동 (USB는 fallback 용)
-## 전체 동작 플로우 (Flowchart)
+🧯 Troubleshooting (Issues & Fixes)
+
+이 프로젝트는 USB(또는 외장 SSD) 삽입만으로 업데이트를 자동 수행하고, 업데이트 후 앱이 정상 기동하지 않으면 pending 기반 자동 롤백이 동작하도록 설계되어 있습니다. 
+
+아래는 실제 운영/테스트에서 자주 만나는 문제를 Symptom → Cause → Fix → Verify로 정리했습니다.
+
+0) 먼저 보는 로그/상태 파일 (원인 추적 1순위)
+
+메인 로그: /var/log/usb-updater.log 
+GitHub
+
+히스토리 로그: /var/log/usb-updater-history.log 
+GitHub
+
+상태 파일: /var/lib/usb-updater/state.json 
+
+백업 디렉터리: /opt/my-app-backups/ 
+
+작업 디렉터리: /opt/my-app-updates/work/ 
+
+자주 쓰는 확인 명령: 
+# 서비스 상태
+systemctl status usb-updater.service
+systemctl status usb-updater.timer
+systemctl status my-app.service
+
+# udev 트리거 확인
+sudo journalctl -fu systemd-udevd -fu usb-updater-on-usb@sda1.service
+
+# 업데이트 로그
+tail -n 50 /var/log/usb-updater.log
+tail -n 50 /var/log/usb-updater-history.log
+
+# 상태
+cat /var/lib/usb-updater/state.json
+
+1) “USB 꽂았는데 업데이트가 시작 자체를 안 함”
+
+Symptom
+
+USB를 꽂아도 usb-updater-on-usb@...service가 뜨지 않음
+
+로그에 아무것도 안 남음
+
+Cause
+
+udev 트리거 조건은 파일시스템 라벨이 UPDATE_USB 일 때만 동작함 
+
+udev 룰이 /etc/udev/rules.d/에 설치/리로드가 안 됐거나, 라벨이 다른 파티션에 설정됨 
+GitHub
+
+Fix
+
+라벨 확인 및 설정 
+
+lsblk -f
+# 예: /dev/sda1 이 UPDATE_USB 용이면
+sudo e2label /dev/sda1 UPDATE_USB
+
+
+udev 룰 설치/리로드 
+
+sudo cp udev/99-usb-updater.rules /etc/udev/rules.d/
+sudo udevadm control --reload
+
+
+Verify
+
+USB 재삽입 후 아래 로그에 usb-updater-on-usb@...가 뜨는지 확인 
+
+sudo journalctl -u usb-updater-on-usb@sda1.service --no-pager
+
+2) “서비스는 떴는데 manifest/app.tar.gz를 못 찾는 것 같음”
+
+Symptom
+
+usb-updater가 실행은 되는데 업데이트가 진행되지 않음
+
+로그에 manifest/app 경로 관련 실패가 보임
+
+Cause
+
+USB 내부 구조가 아래처럼 정확히 되어 있어야 함
+UPDATE_USB/update/manifest.json + UPDATE_USB/update/app.tar.gz 
+
+udev 흐름에서는 wrapper가 /media/<USER>/UPDATE_USB 마운트 경로를 기준으로 확인함(README 흐름 설명) 
+
+Fix
+
+USB에 아래 구조로 배치 
+
+UPDATE_USB/
+└── update/
+    ├── manifest.json
+    └── app.tar.gz
+
+
+마운트 경로가 환경에 따라 다르면 수동 실행로 경로 고정 가능 
+
+sudo usb-updater --mount-path /media/pi07/UPDATE_USB
+
+
+Verify
+
+ls -R /media/*/UPDATE_USB/update 2>/dev/null || true
+cat /media/*/UPDATE_USB/update/manifest.json 2>/dev/null || true
+
+3) “업데이트가 됐는데 바로 다시 롤백돼 버림 (자동 롤백 오동작처럼 보임)”
+
+Symptom
+
+업데이트 직후엔 새 버전이 설치된 것 같은데, 다음 실행/재부팅/타이머 동작 후 이전 버전으로 되돌아감
+
+history.log에 rollback이 찍힘
+
+Cause (설계된 동작)
+
+이 프로젝트는 설치 직후 pending=true로 표시하고,
+앱이 “정상 기동 확인”되면 usb-update-mark-healthy가 호출되어 pending=false가 되도록 설계됨 
+
+pending=true 상태에서 usb-updater가 다시 실행되면(예: usb-updater.timer) 자동 롤백 조건을 만족할 수 있음 
+
+Fix
+
+앱이 정상 동작하는 걸 확인한 뒤, 헬스 승인 처리 
+GitHub
+
+sudo /usr/local/sbin/usb-update-mark-healthy
+cat /var/lib/usb-updater/state.json
+
+
+또는 my-app.service가 재시작될 때 ExecStartPost로 자동 호출되도록 구성되어 있으니, 서비스 유닛/동작을 함께 점검
+
+Verify
+
+state.json의 pending이 "false"인지 확인 
+GitHub
++1
+
+이후 타이머가 돌아도 rollback이 발생하지 않는지 확인
+
+4) “업데이트가 계속 ‘skip’ 처리됨 (새 버전 넣었는데도…)”
+
+Symptom
+
+USB에 업데이트를 넣어도 로그에 skip이 찍히고 설치가 안 됨
+
+Cause
+
+state.json의 current_version과 manifest.json의 version이 같으면 중복 업데이트 방지로 스킵함 
+
+Fix
+
+manifest.json의 version을 실제 새 버전으로 올려서 배포 
+
+
+(테스트 목적) state.json을 직접 수정하는 건 추천하지 않음 — 이력/롤백 판단이 꼬일 수 있음 
+
+
+Verify
+
+cat /var/lib/usb-updater/state.json
+cat /media/*/UPDATE_USB/update/manifest.json 2>/dev/null || true
+tail -n 30 /var/log/usb-updater-history.log
+
+5) “수동 롤백이 안 됨 / 백업이 없다”
+
+Symptom
+
+usb-update-rollback last를 했는데 실패
+
+/opt/my-app-backups/에 백업 디렉터리가 없음
+
+Cause
+
+백업은 업데이트 과정에서 생성/갱신되며, 상태 파일의 backup_dir도 함께 관리됨 
+
+
+아직 “정상 업데이트가 한 번도 성공적으로 수행되지 않았거나”, 백업 경로 권한/디렉터리 생성이 실패했을 수 있음
+
+Fix
+
+백업 목록 확인 후 롤백 
+
+ls /opt/my-app-backups
+sudo usb-update-rollback last
+# 또는 특정 백업 디렉터리로 지정
+sudo usb-update-rollback my-app-20251218-105544
+
+
+Verify
+
+롤백 후 my-app.sh 실행 및 state.json 갱신 여부 확인 
+
+6) “무결성(SHA256) 검증이 기대처럼 동작하지 않음”
+
+Symptom
+
+manifest.json에 sha256 필드가 있는데, 빈 값이어도 업데이트가 진행되는 것처럼 보임
+
+Cause
+
+현재 README에서도 확장 아이디어로 “SHA256 검증 필수화”가 TODO로 남아있는 상태 
+
+(즉, 현 버전은 sha256이 ‘필수 강제’가 아닐 수 있음)
+
+Fix (운영 팁)
+
+배포 전에 수동 검증 습관화
+
+sha256sum app.tar.gz
+# manifest.json에 값 반영(또는 검증 로직을 필수화하도록 개선)
+
+
+Verify
+
+파일 손상/오배포를 일부러 만들어 검증 실패가 잡히는지(또는 개선 후) 테스트
+
+7) “어디서부터 문제인지 모르겠을 때” (진단 순서)
+
+라벨 확인: lsblk -f 에서 대상 파티션 라벨이 UPDATE_USB인지 
+
+udev 트리거 확인: usb-updater-on-usb@...service가 실제로 떴는지 
+
+마운트/파일 확인: /media/<USER>/UPDATE_USB/update/{manifest.json,app.tar.gz} 존재 여부 
+
+상태 확인: state.json에서 current_version/pending/last_error 확인 
+
+롤백 여부 확인: history.log에 rollback/skip 사유가 남는지 확인 
