@@ -2,37 +2,36 @@
 
 ```mermaid
 flowchart TD
-  %% ==== 트리거 쪽 ====
+  %% ==== Triggers ====
   subgraph Triggers
-    UDEV[USB 꽂힘<br/>(라벨: UPDATE_USB)]
-    TIMER[주기 타이머<br/>(usb-updater.timer)]
-    MANUAL[수동 실행<br/>(sudo usb-updater)]
+    UDEV[USB insert (label: UPDATE_USB)]
+    TIMER[Timer (usb-updater.timer)]
+    MANUAL[Manual run (sudo usb-updater)]
   end
 
-  UDEV --> SVC_TPL[systemd 템플릿 서비스<br/>usb-updater-on-usb@.service]
-  SVC_TPL --> WRAP[usb-updater-udev-wrapper<br/>(마운트 대기)]
+  UDEV --> SVC_TPL[systemd template service usb-updater-on-usb@.service]
+  SVC_TPL --> WRAP[usb-updater-udev-wrapper (wait for mount)]
 
-  TIMER --> UPD[usb-updater<br/>(메인 스크립트)]
+  TIMER --> UPD[usb-updater (main script)]
   MANUAL --> UPD
   WRAP --> UPD
 
-  %% ==== 업데이트 경로 ====
-  UPD -->|manifest 없음 또는<br/>버전 ≤ current_version| SKIP[스킵<br/>변경 없음]
+  %% ==== Update path ====
+  UPD -->|no manifest or version <= current_version| SKIP[Skip (no change)]
+  UPD -->|new version found| BACKUP[Backup old /opt/my-app]
+  BACKUP --> DEPLOY[Deploy new /opt/my-app]
+  DEPLOY --> PENDING[Update state: pending = true]
 
-  UPD -->|새 버전 발견| BACKUP[이전 버전 백업<br/>(/opt/my-app-backups)]
-  BACKUP --> DEPLOY[새 버전 배포<br/>(/opt/my-app)]
-  DEPLOY --> PENDING[상태 갱신<br/>pending = true<br/>last_status = "pending"]
+  %% ==== Health check success ====
+  PENDING -->|my-app.service start + ExecStartPost| HEALTHY_MARK[usb-update-mark-healthy]
+  HEALTHY_MARK --> HEALTHY[Update state: pending = false, status = ok]
 
-  %% ==== 헬스 체크 성공 경로 ====
-  PENDING -->|my-app.service 기동 후<br/>ExecStartPost 실행| HEALTHY_MARK[usb-update-mark-healthy]
-  HEALTHY_MARK --> HEALTHY[상태 갱신<br/>pending = false<br/>last_status = "ok"]
+  %% ==== Health check failed -> auto rollback ====
+  PENDING -->|still pending when usb-updater runs again| ROLLBACK[Auto rollback from backup]
+  ROLLBACK --> ROLLED[Update state: rollback done]
 
-  %% ==== 헬스 체크 실패 → 자동 롤백 ====
-  PENDING -->|pending = true 인 상태에서<br/>usb-updater 재실행| ROLLBACK[자동 롤백<br/>백업에서 복구]
-  ROLLBACK --> ROLLED[상태 갱신<br/>pending = false<br/>last_status = "rollback"]
-
-  %% ==== 로그 공통 경로 ====
-  UPD --> LOG[로그 기록<br/>usb-updater.log<br/>usb-updater-history.log]
+  %% ==== Logging ====
+  UPD --> LOG[Log: usb-updater.log, history.log]
   HEALTHY_MARK --> LOG
   ROLLBACK --> LOG
 ```
