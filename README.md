@@ -1,3 +1,41 @@
+## 전체 동작 플로우 (Flowchart)
+
+```mermaid
+flowchart TD
+  %% ==== 트리거 쪽 ====
+  subgraph Triggers
+    UDEV[USB 꽂힘<br/>(라벨: UPDATE_USB)]
+    TIMER[주기 타이머<br/>(usb-updater.timer)]
+    MANUAL[수동 실행<br/>(sudo usb-updater)]
+  end
+
+  UDEV --> SVC_TPL[systemd 템플릿 서비스<br/>usb-updater-on-usb@.service]
+  SVC_TPL --> WRAP[usb-updater-udev-wrapper<br/>(마운트 대기)]
+
+  TIMER --> UPD[usb-updater<br/>(메인 스크립트)]
+  MANUAL --> UPD
+  WRAP --> UPD
+
+  %% ==== 업데이트 경로 ====
+  UPD -->|manifest 없음 또는<br/>버전 ≤ current_version| SKIP[스킵<br/>변경 없음]
+
+  UPD -->|새 버전 발견| BACKUP[이전 버전 백업<br/>(/opt/my-app-backups)]
+  BACKUP --> DEPLOY[새 버전 배포<br/>(/opt/my-app)]
+  DEPLOY --> PENDING[상태 갱신<br/>pending = true<br/>last_status = "pending"]
+
+  %% ==== 헬스 체크 성공 경로 ====
+  PENDING -->|my-app.service 기동 후<br/>ExecStartPost 실행| HEALTHY_MARK[usb-update-mark-healthy]
+  HEALTHY_MARK --> HEALTHY[상태 갱신<br/>pending = false<br/>last_status = "ok"]
+
+  %% ==== 헬스 체크 실패 → 자동 롤백 ====
+  PENDING -->|pending = true 인 상태에서<br/>usb-updater 재실행| ROLLBACK[자동 롤백<br/>백업에서 복구]
+  ROLLBACK --> ROLLED[상태 갱신<br/>pending = false<br/>last_status = "rollback"]
+
+  %% ==== 로그 공통 경로 ====
+  UPD --> LOG[로그 기록<br/>usb-updater.log<br/>usb-updater-history.log]
+  HEALTHY_MARK --> LOG
+  ROLLBACK --> LOG
+```
 # Raspberry Pi 5 – USB Auto Update System
 > 자동 롤백 + 헬스 체크 + udev 트리거 기반 “안전한 업데이트” 미니 프로젝트
 
