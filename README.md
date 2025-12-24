@@ -434,6 +434,25 @@ SHA256 검증 “필수화”
 A/B 루트 파티션(전체 OS 롤백) 구조로 확장
 
 네트워크 업데이트 서버 연동(USB는 fallback 용)
+
+## 업데이트 FSM (상태 중심)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Healthy
+
+    state "Healthy (pending = false)" as Healthy
+    state "Pending update (pending = true)" as Pending
+    state "Rolled back" as RolledBack
+
+    Healthy --> Pending: install new version
+    Healthy --> Healthy: skip (no update)
+
+    Pending --> Healthy: mark healthy (ok)
+    Pending --> RolledBack: auto rollback
+
+    RolledBack --> Pending: install newer version
+```
 ## 전체 동작 플로우 (Flowchart)
 
 ```mermaid
