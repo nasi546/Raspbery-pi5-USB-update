@@ -1,38 +1,40 @@
 ## 전체 동작 플로우 (Flowchart)
+
 ```mermaid
 flowchart TD
-  %% ==== Triggers ====
-  subgraph Triggers
-    UDEV[USB insert (label: UPDATE_USB)]
-    TIMER[Timer (usb-updater.timer)]
-    MANUAL[Manual run (sudo usb-updater)]
-  end
+  UDEV["USB insert (label: UPDATE_USB)"]
+  TIMER["Timer: usb-updater.timer"]
+  MANUAL["Manual run: sudo usb-updater"]
 
-  UDEV --> SVC_TPL[systemd template service usb-updater-on-usb@.service]
-  SVC_TPL --> WRAP[usb-updater-udev-wrapper (wait for mount)]
+  UPD["usb-updater (main script)"]
+  SKIP["Skip (no update)"]
+  BACKUP["Backup current /opt/my-app"]
+  DEPLOY["Deploy new /opt/my-app"]
+  PENDING["State: pending = true"]
+  HEALTHY["State: healthy (pending = false)"]
+  ROLLBACK["Auto rollback from backup"]
 
-  TIMER --> UPD[usb-updater (main script)]
+  %% 트리거 → 업데이트 스크립트
+  UDEV --> UPD
+  TIMER --> UPD
   MANUAL --> UPD
-  WRAP --> UPD
 
-  %% ==== Update path ====
-  UPD -->|no manifest or version <= current_version| SKIP[Skip (no change)]
-  UPD -->|new version found| BACKUP[Backup old /opt/my-app]
-  BACKUP --> DEPLOY[Deploy new /opt/my-app]
-  DEPLOY --> PENDING[Update state: pending = true]
+  %% 업데이트 분기
+  UPD --> SKIP
+  UPD --> BACKUP
 
-  %% ==== Health check success ====
-  PENDING -->|my-app.service start + ExecStartPost| HEALTHY_MARK[usb-update-mark-healthy]
-  HEALTHY_MARK --> HEALTHY[Update state: pending = false, status = ok]
+  BACKUP --> DEPLOY
+  DEPLOY --> PENDING
 
-  %% ==== Health check failed -> auto rollback ====
-  PENDING -->|still pending when usb-updater runs again| ROLLBACK[Auto rollback from backup]
-  ROLLBACK --> ROLLED[Update state: rollback done]
+  %% 헬스 체크 성공
+  PENDING --> HEALTHY
 
-  %% ==== Logging ====
-  UPD --> LOG[Log: usb-updater.log, history.log]
-  HEALTHY_MARK --> LOG
-  ROLLBACK --> LOG
+  %% 헬스 체크 실패 시 다음 실행에서 롤백
+  PENDING --> ROLLBACK
+
+  %% 다시 루프
+  HEALTHY --> UDEV
+  ROLLBACK --> UDEV
 ```
 # Raspberry Pi 5 – USB Auto Update System
 > 자동 롤백 + 헬스 체크 + udev 트리거 기반 “안전한 업데이트” 미니 프로젝트
