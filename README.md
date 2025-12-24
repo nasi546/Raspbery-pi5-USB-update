@@ -1,41 +1,3 @@
-## 전체 동작 플로우 (Flowchart)
-
-```mermaid
-flowchart TD
-  UDEV["USB insert (label: UPDATE_USB)"]
-  TIMER["Timer: usb-updater.timer"]
-  MANUAL["Manual run: sudo usb-updater"]
-
-  UPD["usb-updater (main script)"]
-  SKIP["Skip (no update)"]
-  BACKUP["Backup current /opt/my-app"]
-  DEPLOY["Deploy new /opt/my-app"]
-  PENDING["State: pending = true"]
-  HEALTHY["State: healthy (pending = false)"]
-  ROLLBACK["Auto rollback from backup"]
-
-  %% 트리거 → 업데이트 스크립트
-  UDEV --> UPD
-  TIMER --> UPD
-  MANUAL --> UPD
-
-  %% 업데이트 분기
-  UPD --> SKIP
-  UPD --> BACKUP
-
-  BACKUP --> DEPLOY
-  DEPLOY --> PENDING
-
-  %% 헬스 체크 성공
-  PENDING --> HEALTHY
-
-  %% 헬스 체크 실패 시 다음 실행에서 롤백
-  PENDING --> ROLLBACK
-
-  %% 다시 루프
-  HEALTHY --> UDEV
-  ROLLBACK --> UDEV
-```
 # Raspberry Pi 5 – USB Auto Update System
 > 자동 롤백 + 헬스 체크 + udev 트리거 기반 “안전한 업데이트” 미니 프로젝트
 
@@ -472,3 +434,41 @@ SHA256 검증 “필수화”
 A/B 루트 파티션(전체 OS 롤백) 구조로 확장
 
 네트워크 업데이트 서버 연동(USB는 fallback 용)
+## 전체 동작 플로우 (Flowchart)
+
+```mermaid
+flowchart TD
+  UDEV["USB insert (label: UPDATE_USB)"]
+  TIMER["Timer: usb-updater.timer"]
+  MANUAL["Manual run: sudo usb-updater"]
+
+  UPD["usb-updater (main script)"]
+  SKIP["Skip (no update)"]
+  BACKUP["Backup current /opt/my-app"]
+  DEPLOY["Deploy new /opt/my-app"]
+  PENDING["State: pending = true"]
+  HEALTHY["State: healthy (pending = false)"]
+  ROLLBACK["Auto rollback from backup"]
+
+  %% 트리거 → 업데이트 스크립트
+  UDEV --> UPD
+  TIMER --> UPD
+  MANUAL --> UPD
+
+  %% 업데이트 분기
+  UPD --> SKIP
+  UPD --> BACKUP
+
+  BACKUP --> DEPLOY
+  DEPLOY --> PENDING
+
+  %% 헬스 체크 성공
+  PENDING --> HEALTHY
+
+  %% 헬스 체크 실패 시 다음 실행에서 롤백
+  PENDING --> ROLLBACK
+
+  %% 다시 루프
+  HEALTHY --> UDEV
+  ROLLBACK --> UDEV
+```
