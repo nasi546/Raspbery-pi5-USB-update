@@ -73,6 +73,7 @@ Raspbery-pi5-USB-update/
 └── examples/
     ├── example-my-app.sh
     └── example-manifest.json
+```
 💾 USB Update Package Format
 
 라벨이 UPDATE_USB인 스토리지 안에 아래 구조로 준비합니다.
