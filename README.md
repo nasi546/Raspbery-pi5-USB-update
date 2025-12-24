@@ -93,12 +93,19 @@ manifest.json 예시
 ```
 필드 설명
 Key	설명
+
 version	버전 문자열 (중복 업데이트 방지에 사용)
+
 description	업데이트 설명(로그용)
+
 sha256	(옵션) 무결성 확인용 해시
+
 target	전개 대상 디렉터리 (예: /opt/my-app)
+
 service	업데이트 후 재시작할 systemd 서비스 (예: my-app.service)
+
 app.tar.gz 만들기 예시
+
 ```text
 mkdir -p /tmp/app_v1.0.0
 cp examples/example-my-app.sh /tmp/app_v1.0.0/my-app.sh
@@ -176,7 +183,9 @@ sudo e2label /dev/sda1 UPDATE_USB
 1) 자동 업데이트(추천)
 
 1.USB/SSD에 UPDATE_USB 라벨 설정
+
 2.update/manifest.json, update/app.tar.gz 배치
+
 3.라즈베리파이에 꽂기
 
 로그 확인
@@ -237,11 +246,17 @@ state.json 위치
 필드 설명
 Key	설명
 current_version	현재 설치된 버전
+
 previous_version	직전 버전
+
 backup_dir	롤백용 백업 경로
+
 target_dir	전개 대상 경로
+
 pending	"true"면 아직 헬스 체크 승인 전
+
 last_status	"ok" / "pending" / "rollback" / "manual-rollback" / "skip" 등
+
 last_error	오류/롤백 사유
 
 자동 롤백 조건(핵심)
@@ -259,10 +274,15 @@ backup_dir 내용으로 target_dir 복구
 
 🗂 Logs & Paths
 항목	경로
+
 메인 로그	/var/log/usb-updater.log
+
 히스토리 로그	/var/log/usb-updater-history.log
+
 상태 파일	/var/lib/usb-updater/state.json
+
 백업 디렉터리	/opt/my-app-backups/
+
 작업 디렉터리	/opt/my-app-updates/work/
 
 🧯 Troubleshooting (Issues & Fixes)
