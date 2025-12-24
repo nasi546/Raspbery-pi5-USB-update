@@ -439,28 +439,19 @@ A/B 루트 파티션(전체 OS 롤백) 구조로 확장
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Ready
+    [*] --> Healthy
 
-    state "Ready (pending = false)" as Ready
-    state "Installing update" as Installing
+    state "Healthy (pending = false)" as Healthy
     state "Pending update (pending = true)" as Pending
-    state "Rolled back (auto)" as RolledBackAuto
-    state "Rolled back (manual)" as RolledBackManual
+    state "Rolled back" as RolledBack
 
-    %% 정상 동작
-    Ready --> Ready: usb-updater skip
-    Ready --> Installing: usb-updater new version
-    Installing --> Pending: backup and deploy
-    Pending --> Ready: mark healthy
+    Healthy --> Pending: install new version
+    Healthy --> Healthy: skip (no update)
 
-    %% 자동 롤백
-    Pending --> RolledBackAuto: auto rollback
-    RolledBackAuto --> Ready: previous version ok
+    Pending --> Healthy: mark healthy (ok)
+    Pending --> RolledBack: auto rollback
 
-    %% 수동 롤백
-    Ready --> RolledBackManual: manual rollback
-    Pending --> RolledBackManual: manual rollback
-    RolledBackManual --> Ready: previous version ok
+    RolledBack --> Pending: install newer version
 ```
 ## 전체 동작 플로우 (Flowchart)
 
